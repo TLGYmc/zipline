@@ -88,7 +88,7 @@ export const schema = z.object({
   files: z.object({
     route: z.string().startsWith('/').min(1).trim().toLowerCase().default('/u'),
     length: z.number().default(6),
-    defaultFormat: z.enum(['random', 'date', 'uuid', 'name', 'gfycat', 'random-words']).default('random'),
+    defaultFormat: z.enum(['random', 'date', 'uuid', 'name', 'gfycat', 'random-words', 'date-random']).default('random'),
     disabledExtensions: z.array(z.string()).default([]),
     maxFileSize: z.string().default('100mb'),
     defaultExpiration: z.string().nullable().default(null),
