@@ -6,6 +6,12 @@ import { randomUUID } from 'crypto';
 import { parse } from 'path';
 import { randomWords } from './randomWords';
 
+function dateRandom(): string {
+  const datePart = dayjs().format(config.files.defaultDateFormat);
+  const randomPart = randomCharacters(config.files.length);
+  return `${datePart}_${randomPart}`;
+}
+
 export function formatFileName(nameFormat: Config['files']['defaultFormat'], originalName?: string) {
   switch (nameFormat) {
     case 'random':
@@ -16,11 +22,12 @@ export function formatFileName(nameFormat: Config['files']['defaultFormat'], ori
       return randomUUID({ disableEntropyCache: true });
     case 'name':
       const { name } = parse(originalName!);
-
       return name;
     case 'random-words':
     case 'gfycat':
       return randomWords(config.files.randomWordsNumAdjectives, config.files.randomWordsSeparator);
+    case 'date-random':
+      return dateRandom();
     default:
       return randomCharacters(config.files.length);
   }
