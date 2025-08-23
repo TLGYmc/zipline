@@ -185,6 +185,7 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
               { value: 'uuid', label: 'UUID' },
               { value: 'name', label: 'Use file name' },
               { value: 'gfycat', label: 'Gfycat-style name' },
+              { value: 'date-random', label: 'Date + Random' },
             ]}
             label={
               <>
