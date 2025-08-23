@@ -135,7 +135,7 @@ function headerError(header: keyof UploadHeaders, message: string) {
   };
 }
 
-const FORMATS = ['random', 'uuid', 'date', 'name', 'gfycat', 'random-words'];
+const FORMATS = ['random', 'uuid', 'date', 'name', 'gfycat', 'random-words', 'date-random'];
 
 export function parseHeaders(headers: UploadHeaders, fileConfig: Config['files']): UploadOptions {
   const response: UploadOptions = {};
