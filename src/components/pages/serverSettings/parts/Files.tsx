@@ -140,7 +140,7 @@ export default function Files({
             label='Default Format'
             description='The default format to use for file names.'
             placeholder='random'
-            data={['random', 'date', 'uuid', 'name', 'gfycat']}
+            data={['random', 'date', 'uuid', 'name', 'gfycat', 'date-random',]}
             {...form.getInputProps('filesDefaultFormat')}
           />
 
