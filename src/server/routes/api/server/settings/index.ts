@@ -136,7 +136,7 @@ export default fastifyPlugin(
                 'Provided route is reserved',
               ),
             filesLength: z.number().min(1).max(64),
-            filesDefaultFormat: z.enum(['random', 'date', 'uuid', 'name', 'gfycat']),
+            filesDefaultFormat: z.enum(['random', 'date', 'uuid', 'name', 'gfycat', 'date-random']),
             filesDisabledExtensions: z
               .union([
                 z.array(z.string().refine((s) => !s.startsWith('.'), 'extension can\'t include "."')),
