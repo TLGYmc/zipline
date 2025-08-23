@@ -160,6 +160,7 @@ export default function GeneratorButton({
               { value: 'uuid', label: 'UUID' },
               { value: 'name', label: 'Use file name' },
               { value: 'gfycat', label: 'Gfycat-style name' },
+              { value: 'date-random', label: 'Date + Random' },
             ]}
             label='Name format'
             description='The file name format to use when uploading files, the "File name" field will override this value.'
