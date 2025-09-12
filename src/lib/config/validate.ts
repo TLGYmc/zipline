@@ -1,9 +1,10 @@
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
-import { type ZodIssue, z } from 'zod';
+import { z } from 'zod';
 import { log } from '../logger';
 import { ParsedConfig } from './read';
 import { PROP_TO_ENV } from './read/env';
+import { checkOutput, COMPRESS_TYPES } from '../compress';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -18,7 +19,7 @@ declare global {
 
 export const discordContent = z
   .object({
-    webhookUrl: z.string().url().nullable().default(null),
+    webhookUrl: z.url().nullable().default(null),
     username: z.string().nullable().default(null),
     avatarUrl: z.string().nullable().default(null),
     content: z.string().nullable().default(null),
@@ -62,10 +63,11 @@ export const schema = z.object({
           inclusive: true,
           message: 'Secret must contain at least 32 characters',
           exact: false,
+          origin: 'string',
         });
       }
     }),
-    databaseUrl: z.string().url(),
+    databaseUrl: z.url(),
     returnHttpsUrls: z.boolean().default(false),
     defaultDomain: z.string().nullable().default(null),
     tempDirectory: z
@@ -99,6 +101,10 @@ export const schema = z.object({
     removeGpsMetadata: z.boolean().default(false),
     randomWordsNumAdjectives: z.number().default(3),
     randomWordsSeparator: z.string().default('-'),
+    defaultCompressionFormat: z
+      .enum(COMPRESS_TYPES)
+      .default('jpg')
+      .refine((v) => checkOutput(v), 'System does not support outputting this image format.'),
   }),
   urls: z.object({
     route: z.string().startsWith('/').min(1).trim().toLowerCase().default('/go'),
@@ -132,7 +138,7 @@ export const schema = z.object({
       if (s.type === 's3' && !s.s3) {
         for (const key of ['accessKeyId', 'secretAccessKey', 'region', 'bucket']) {
           c.addIssue({
-            code: z.ZodIssueCode.invalid_type,
+            code: 'invalid_type',
             expected: 'string',
             received: 'unknown',
             path: ['s3', key],
@@ -140,7 +146,7 @@ export const schema = z.object({
         }
       } else if (s.type === 'local' && !s.local) {
         c.addIssue({
-          code: z.ZodIssueCode.invalid_type,
+          code: 'invalid_type',
           expected: 'string',
           received: 'unknown',
           path: ['local', 'directory'],
@@ -157,6 +163,7 @@ export const schema = z.object({
     thumbnails: z.object({
       enabled: z.boolean().default(true),
       num_threads: z.number().default(4),
+      format: z.enum(['jpg', 'png', 'webp']).default('jpg'),
     }),
     metrics: z.object({
       enabled: z.boolean().default(true),
@@ -164,7 +171,7 @@ export const schema = z.object({
       showUserSpecific: z.boolean().default(true),
     }),
     versionChecking: z.boolean().default(true),
-    versionAPI: z.string().url().default('https://zipline-version.diced.sh/'),
+    versionAPI: z.url().default('https://zipline-version.diced.sh/'),
   }),
   domains: z.array(z.string()).default([]),
   invites: z.object({
@@ -173,12 +180,12 @@ export const schema = z.object({
   }),
   website: z.object({
     title: z.string().default('Zipline'),
-    titleLogo: z.string().url().nullable().default(null),
+    titleLogo: z.url().nullable().default(null),
     externalLinks: z
       .array(
         z.object({
           name: z.string(),
-          url: z.string().url(),
+          url: z.url(),
         }),
       )
       .default([
@@ -191,7 +198,7 @@ export const schema = z.object({
           url: 'https://zipline.diced.sh',
         },
       ]),
-    loginBackground: z.string().url().nullable().default(null),
+    loginBackground: z.url().nullable().default(null),
     loginBackgroundBlur: z.boolean().default(true),
     defaultAvatar: z
       .string()
@@ -224,7 +231,7 @@ export const schema = z.object({
       .object({
         clientId: z.string(),
         clientSecret: z.string(),
-        redirectUri: z.string().url().nullable().default(null),
+        redirectUri: z.url().nullable().default(null),
         allowedIds: z.array(z.string()).default([]),
         deniedIds: z.array(z.string()).default([]),
       })
@@ -241,7 +248,7 @@ export const schema = z.object({
       .object({
         clientId: z.string(),
         clientSecret: z.string(),
-        redirectUri: z.string().url().nullable().default(null),
+        redirectUri: z.url().nullable().default(null),
       })
       .or(
         z.object({
@@ -254,7 +261,7 @@ export const schema = z.object({
       .object({
         clientId: z.string(),
         clientSecret: z.string(),
-        redirectUri: z.string().url().nullable().default(null),
+        redirectUri: z.url().nullable().default(null),
       })
       .or(
         z.object({
@@ -267,10 +274,10 @@ export const schema = z.object({
       .object({
         clientId: z.string(),
         clientSecret: z.string(),
-        authorizeUrl: z.string().url(),
-        userinfoUrl: z.string().url(),
-        tokenUrl: z.string().url(),
-        redirectUri: z.string().url().nullable().default(null),
+        authorizeUrl: z.url(),
+        userinfoUrl: z.url(),
+        tokenUrl: z.url(),
+        redirectUri: z.url().nullable().default(null),
       })
       .or(
         z.object({
@@ -285,9 +292,9 @@ export const schema = z.object({
   }),
   discord: z
     .object({
-      webhookUrl: z.string().url().nullable().default(null),
+      webhookUrl: z.url().nullable().default(null),
       username: z.string().nullable().default(null),
-      avatarUrl: z.string().url().nullable().default(null),
+      avatarUrl: z.url().nullable().default(null),
       onUpload: discordContent,
       onShorten: discordContent,
     })
@@ -305,8 +312,8 @@ export const schema = z.object({
     allowList: z.array(z.string()).default([]),
   }),
   httpWebhook: z.object({
-    onUpload: z.string().url().nullable().default(null),
-    onShorten: z.string().url().nullable().default(null),
+    onUpload: z.url().nullable().default(null),
+    onShorten: z.url().nullable().default(null),
   }),
   ssl: z.object({
     key: z
@@ -347,7 +354,7 @@ export function validateConfigObject(env: ParsedConfig): Config {
   if (!validated.success) {
     logger.error('There was an error while validating the environment.');
 
-    for (const error of validated.error.errors) {
+    for (const error of validated.error.issues) {
       handleError(error);
     }
 
@@ -359,23 +366,32 @@ export function validateConfigObject(env: ParsedConfig): Config {
   return validated.data;
 }
 
-function handleError(error: ZodIssue) {
+function handleError(error: z.core.$ZodIssue, pathPrefix: PropertyKey[] = []) {
   logger.debug(JSON.stringify(error));
 
   if (error.code === 'invalid_union') {
-    for (const unionError of error.unionErrors) {
-      for (const subError of unionError.issues) {
-        handleError(subError);
+    for (const unionError of error.errors) {
+      for (const subError of unionError) {
+        handleError(subError, error.path);
       }
     }
 
     return;
   }
 
-  const path =
-    error.path[1] === 'externalLinks'
-      ? `WEBSITE_EXTERNAL_LINKS[${error.path[2]}]`
-      : (PROP_TO_ENV[<keyof typeof PROP_TO_ENV>error.path.join('.')] ?? error.path.join('.'));
+  const path = prettifyPath(error.path, pathPrefix);
 
   logger.error(`${path}: ${error.message}`);
+}
+
+function prettifyPath(path: PropertyKey[], prefix: PropertyKey[] = []) {
+  if (path[1] === 'externalLinks') {
+    return `WEBSITE_EXTERNAL_LINKS[${String(path[2])}]`;
+  }
+
+  return (
+    PROP_TO_ENV[
+      (prefix.length > 0 ? prefix.join('.') + '.' : '') + <keyof typeof PROP_TO_ENV>path.join('.')
+    ] ?? (prefix.length > 0 ? prefix.join('.') + '.' : '') + path.join('.')
+  );
 }

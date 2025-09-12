@@ -133,6 +133,10 @@ async function main() {
     }
   }
 
+  server.get<{ Params: { id: string } }>('/r/:id', async (req, res) => {
+    return res.redirect('/raw/' + req.params.id, 301);
+  });
+
   server.get<{ Params: { id: string } }>('/view/:id', async (_req, res) => {
     return res.ssr('view');
   });
@@ -177,6 +181,14 @@ async function main() {
   server.get('/', (_, res) => res.redirect('/dashboard', 301));
 
   server.setNotFoundHandler((req, res) => {
+    if (MODE === 'development' && server.vite)
+      return res.status(404).send({
+        message: `Route ${req.method}:${req.url} not found`,
+        error: 'Not Found',
+        statusCode: 404,
+        dev: true,
+      });
+
     if (req.url.startsWith('/api/')) {
       return res.status(404).send({
         message: `Route ${req.method}:${req.url} not found`,

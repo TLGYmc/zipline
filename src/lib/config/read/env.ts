@@ -57,6 +57,7 @@ export const ENVS = [
   env('files.removeGpsMetadata', 'FILES_REMOVE_GPS_METADATA', 'boolean', true),
   env('files.randomWordsNumAdjectives', 'FILES_RANDOM_WORDS_NUM_ADJECTIVES', 'number', true),
   env('files.randomWordsSeparator', 'FILES_RANDOM_WORDS_SEPARATOR', 'string', true),
+  env('files.defaultCompressionFormat', 'FILES_DEFAULT_COMPRESSION_FORMAT', 'string', true),
 
   env('urls.route', 'URLS_ROUTE', 'string', true),
   env('urls.length', 'URLS_LENGTH', 'number', true),
@@ -67,11 +68,15 @@ export const ENVS = [
   env('features.userRegistration', 'FEATURES_USER_REGISTRATION', 'boolean', true),
   env('features.oauthRegistration', 'FEATURES_OAUTH_REGISTRATION', 'boolean', true),
   env('features.deleteOnMaxViews', 'FEATURES_DELETE_ON_MAX_VIEWS', 'boolean', true),
+
   env('features.thumbnails.enabled', 'FEATURES_THUMBNAILS_ENABLED', 'boolean', true),
   env('features.thumbnails.num_threads', 'FEATURES_THUMBNAILS_NUM_THREADS', 'number', true),
+  env('features.thumbnails.format', 'FEATURES_THUMBNAILS_FORMAT', 'string', true),
+
   env('features.metrics.enabled', 'FEATURES_METRICS_ENABLED', 'boolean', true),
   env('features.metrics.adminOnly', 'FEATURES_METRICS_ADMIN_ONLY', 'boolean', true),
   env('features.metrics.showUserSpecific', 'FEATURES_METRICS_SHOW_USER_SPECIFIC', 'boolean', true),
+
   env('features.versionChecking', 'FEATURES_VERSION_CHECKING', 'boolean', true),
   env('features.versionAPI', 'FEATURES_VERSION_API', 'string', true),
 

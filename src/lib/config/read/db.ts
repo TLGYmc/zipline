@@ -28,6 +28,7 @@ export const DATABASE_TO_PROP = {
   filesRemoveGpsMetadata: 'files.removeGpsMetadata',
   filesRandomWordsNumAdjectives: 'files.randomWordsNumAdjectives',
   filesRandomWordsSeparator: 'files.randomWordsSeparator',
+  filesDefaultCompressionFormat: 'files.defaultCompressionFormat',
 
   urlsRoute: 'urls.route',
   urlsLength: 'urls.length',
@@ -41,6 +42,7 @@ export const DATABASE_TO_PROP = {
 
   featuresThumbnailsEnabled: 'features.thumbnails.enabled',
   featuresThumbnailsNumberThreads: 'features.thumbnails.num_threads',
+  featuresThumbnailsFormat: 'features.thumbnails.format',
 
   featuresMetricsEnabled: 'features.metrics.enabled',
   featuresMetricsAdminOnly: 'features.metrics.adminOnly',

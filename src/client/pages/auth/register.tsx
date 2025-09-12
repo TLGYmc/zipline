@@ -1,5 +1,6 @@
 import { Response } from '@/lib/api/response';
 import { fetchApi } from '@/lib/fetchApi';
+import { useTitle } from '@/lib/hooks/useTitle';
 import {
   Button,
   Center,
@@ -15,13 +16,12 @@ import {
   Title,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { notifications } from '@mantine/notifications';
+import { notifications, showNotification } from '@mantine/notifications';
 import { IconLogin, IconPlus, IconUserPlus, IconX } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
-import { Link, redirect, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import useSWR, { mutate } from 'swr';
 import GenericError from '../../error/GenericError';
-import { useTitle } from '@/lib/hooks/useTitle';
 
 export function Component() {
   useTitle('Register');
@@ -30,7 +30,6 @@ export function Component() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
-  const [invite, setInvite] = useState<any>(null);
 
   const {
     data: config,
@@ -44,6 +43,19 @@ export function Component() {
   });
 
   const code = new URLSearchParams(location.search).get('code') ?? undefined;
+  const {
+    data: invite,
+    error: inviteError,
+    isLoading: inviteLoading,
+  } = useSWR<Response['/api/auth/invites/web']>(
+    location.search.includes('code') ? `/api/auth/invites/web${location.search}` : null,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      refreshWhenHidden: false,
+      revalidateIfStale: false,
+    },
+  );
 
   const form = useForm({
     initialValues: {
@@ -61,7 +73,7 @@ export function Component() {
     (async () => {
       const res = await fetch('/api/user');
       if (res.ok) {
-        redirect('/dashboard');
+        navigate('/dashboard');
       } else {
         setLoading(false);
       }
@@ -69,21 +81,9 @@ export function Component() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      if (!code) return;
+    if (!config) return;
 
-      const res = await fetch(`/api/auth/invite/web?code=${code}`);
-      if (res.ok) {
-        const json = await res.json();
-        setInvite(json.invite);
-      } else {
-        redirect('/auth/login');
-      }
-    })();
-  }, [code]);
-
-  useEffect(() => {
-    if (!config?.features.userRegistration) {
+    if (!config?.features.userRegistration && !code) {
       navigate('/auth/login');
     }
   }, [code, config]);
@@ -122,7 +122,7 @@ export function Component() {
       });
 
       mutate('/api/user');
-      redirect('/dashboard');
+      navigate('/dashboard');
     }
   };
 
@@ -136,6 +136,22 @@ export function Component() {
         details={configError}
       />
     );
+  }
+
+  if (code && inviteError) {
+    if (inviteError) {
+      showNotification({
+        id: 'invalid-invite',
+        message: 'Invalid or expired invite. Please try again later.',
+        color: 'red',
+      });
+
+      navigate('/auth/login');
+
+      return null;
+    }
+
+    if (inviteLoading) return <LoadingOverlay visible />;
   }
 
   return (
@@ -183,8 +199,13 @@ export function Component() {
 
         {invite && (
           <Text ta='center' size='sm' c='dimmed'>
-            You’ve been invited to join <b>{config?.website?.title ?? 'Zipline'}</b> by{' '}
-            <b>{invite.inviter?.username}</b>
+            You’ve been invited to join <b>{config?.website?.title ?? 'Zipline'}</b>
+            {invite.inviter && (
+              <>
+                {' '}
+                by <b>{invite.inviter.username}</b>
+              </>
+            )}
           </Text>
         )}
 

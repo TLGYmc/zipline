@@ -31,6 +31,7 @@ COPY tsconfig.json ./tsconfig.json
 COPY mimes.json ./mimes.json
 COPY code.json ./code.json
 COPY vite-env.d.ts ./vite-env.d.ts
+COPY scripts ./scripts
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -45,7 +46,7 @@ COPY --from=builder /zipline/build ./build
 COPY --from=builder /zipline/mimes.json ./mimes.json
 COPY --from=builder /zipline/code.json ./code.json
 
-RUN pnpm build:prisma
+RUN pnpm prisma generate
 
 # clean
 RUN rm -rf /tmp/* /root/*

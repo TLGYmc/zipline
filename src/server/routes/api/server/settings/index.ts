@@ -1,4 +1,5 @@
 import { bytes } from '@/lib/bytes';
+import { checkOutput, COMPRESS_TYPES } from '@/lib/compress';
 import { reloadSettings } from '@/lib/config';
 import type { readDatabaseSettings } from '@/lib/config/read/db';
 import { safeConfig } from '@/lib/config/safe';
@@ -153,6 +154,9 @@ export default fastifyPlugin(
             filesRemoveGpsMetadata: z.boolean(),
             filesRandomWordsNumAdjectives: z.number().min(1).max(20),
             filesRandomWordsSeparator: z.string(),
+            filesDefaultCompressionFormat: z
+              .enum(COMPRESS_TYPES)
+              .refine((v) => checkOutput(v), 'System does not support outputting this image format.'),
 
             urlsRoute: z
               .string()
@@ -178,31 +182,32 @@ export default fastifyPlugin(
                 cpus().length,
                 'Number of threads must be less than or equal to the number of CPUs: ' + cpus().length,
               ),
+            featuresThumbnailsFormat: z.enum(['jpg', 'png', 'webp']),
 
             featuresMetricsEnabled: z.boolean(),
             featuresMetricsAdminOnly: z.boolean(),
             featuresMetricsShowUserSpecific: z.boolean(),
 
             featuresVersionChecking: z.boolean(),
-            featuresVersionAPI: z.string().url(),
+            featuresVersionAPI: z.url(),
 
             invitesEnabled: z.boolean(),
             invitesLength: z.number().min(1).max(64),
 
             websiteTitle: z.string(),
-            websiteTitleLogo: z.string().url().nullable(),
+            websiteTitleLogo: z.url().nullable(),
             websiteExternalLinks: z
               .union([
                 z.array(
                   z.object({
                     name: z.string(),
-                    url: z.string().url(),
+                    url: z.url(),
                   }),
                 ),
                 z.string(),
               ])
               .transform((value) => (typeof value === 'string' ? JSON.parse(value) : value)),
-            websiteLoginBackground: z.string().url().nullable(),
+            websiteLoginBackground: z.url().nullable(),
             websiteLoginBackgroundBlur: z.boolean(),
             websiteDefaultAvatar: z
               .string()
@@ -236,7 +241,7 @@ export default fastifyPlugin(
 
             oauthDiscordClientId: z.string().nullable(),
             oauthDiscordClientSecret: z.string().nullable(),
-            oauthDiscordRedirectUri: z.string().url().endsWith('/api/auth/oauth/discord').nullable(),
+            oauthDiscordRedirectUri: z.url().endsWith('/api/auth/oauth/discord').nullable(),
             oauthDiscordAllowedIds: z
               .union([
                 z.array(z.string().refine((s) => /^\d+$/.test(s), 'Discord ID must be a number')),
@@ -260,18 +265,18 @@ export default fastifyPlugin(
 
             oauthGoogleClientId: z.string().nullable(),
             oauthGoogleClientSecret: z.string().nullable(),
-            oauthGoogleRedirectUri: z.string().url().endsWith('/api/auth/oauth/google').nullable(),
+            oauthGoogleRedirectUri: z.url().endsWith('/api/auth/oauth/google').nullable(),
 
             oauthGithubClientId: z.string().nullable(),
             oauthGithubClientSecret: z.string().nullable(),
-            oauthGithubRedirectUri: z.string().url().endsWith('/api/auth/oauth/github').nullable(),
+            oauthGithubRedirectUri: z.url().endsWith('/api/auth/oauth/github').nullable(),
 
             oauthOidcClientId: z.string().nullable(),
             oauthOidcClientSecret: z.string().nullable(),
-            oauthOidcAuthorizeUrl: z.string().url().nullable(),
-            oauthOidcTokenUrl: z.string().url().nullable(),
-            oauthOidcUserinfoUrl: z.string().url().nullable(),
-            oauthOidcRedirectUri: z.string().url().endsWith('/api/auth/oauth/oidc').nullable(),
+            oauthOidcAuthorizeUrl: z.url().nullable(),
+            oauthOidcTokenUrl: z.url().nullable(),
+            oauthOidcUserinfoUrl: z.url().nullable(),
+            oauthOidcRedirectUri: z.url().endsWith('/api/auth/oauth/oidc').nullable(),
 
             mfaTotpEnabled: z.boolean(),
             mfaTotpIssuer: z.string(),
@@ -285,22 +290,22 @@ export default fastifyPlugin(
               .union([z.array(z.string()), z.string()])
               .transform((value) => (typeof value === 'string' ? value.split(',') : value)),
 
-            httpWebhookOnUpload: z.string().url().nullable(),
-            httpWebhookOnShorten: z.string().url().nullable(),
+            httpWebhookOnUpload: z.url().nullable(),
+            httpWebhookOnShorten: z.url().nullable(),
 
-            discordWebhookUrl: z.string().url().nullable(),
+            discordWebhookUrl: z.url().nullable(),
             discordUsername: z.string().nullable(),
-            discordAvatarUrl: z.string().url().nullable(),
+            discordAvatarUrl: z.url().nullable(),
 
-            discordOnUploadWebhookUrl: z.string().url().nullable(),
+            discordOnUploadWebhookUrl: z.url().nullable(),
             discordOnUploadUsername: z.string().nullable(),
-            discordOnUploadAvatarUrl: z.string().url().nullable(),
+            discordOnUploadAvatarUrl: z.url().nullable(),
             discordOnUploadContent: z.string().nullable(),
             discordOnUploadEmbed: discordEmbed,
 
-            discordOnShortenWebhookUrl: z.string().url().nullable(),
+            discordOnShortenWebhookUrl: z.url().nullable(),
             discordOnShortenUsername: z.string().nullable(),
-            discordOnShortenAvatarUrl: z.string().url().nullable(),
+            discordOnShortenAvatarUrl: z.url().nullable(),
             discordOnShortenContent: z.string().nullable(),
             discordOnShortenEmbed: discordEmbed,
 
@@ -316,7 +321,7 @@ export default fastifyPlugin(
                 z
                   .string()
                   .regex(
-                    /^[a-zA-Z0-9][a-zA-Z0-9-_]{0,61}[a-zA-Z0-9]{0,1}\.([a-zA-Z]{1,6}|[a-zA-Z0-9-]{1,30}\.[a-zA-Z]{2,3})$/gi,
+                    /^[a-zA-Z0-9][a-zA-Z0-9-_]{0,61}[a-zA-Z0-9]{0,1}\.([a-zA-Z]{1,6}|[a-zA-Z0-9-]{1,30}\.[a-zA-Z]{2,30})$/gi,
                     'Invalid Domain',
                   ),
               ),
