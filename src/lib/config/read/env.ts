@@ -1,8 +1,9 @@
 import { log } from '@/lib/logger';
+import { readFileSync } from 'node:fs';
 import { parse } from './transform';
 
 export type EnvType = 'string' | 'string[]' | 'number' | 'boolean' | 'byte' | 'ms' | 'json';
-export function env(property: string, env: string | string[], type: EnvType, isDb: boolean = false) {
+export function env(property: string, env: string, type: EnvType, isDb: boolean = false) {
   return {
     variable: env,
     property,
@@ -15,7 +16,14 @@ export const ENVS = [
   env('core.port', 'CORE_PORT', 'number'),
   env('core.hostname', 'CORE_HOSTNAME', 'string'),
   env('core.secret', 'CORE_SECRET', 'string'),
-  env('core.databaseUrl', ['DATABASE_URL', 'CORE_DATABASE_URL'], 'string'),
+
+  env('core.databaseUrl', 'DATABASE_URL', 'string'),
+  // or
+  env('core.database.username', 'DATABASE_USERNAME', 'string', true),
+  env('core.database.password', 'DATABASE_PASSWORD', 'string', true),
+  env('core.database.host', 'DATABASE_HOST', 'string', true),
+  env('core.database.port', 'DATABASE_PORT', 'number', true),
+  env('core.database.name', 'DATABASE_NAME', 'string', true),
 
   env('datasource.type', 'DATASOURCE_TYPE', 'string'),
   env('datasource.s3.accessKeyId', 'DATASOURCE_S3_ACCESS_KEY_ID', 'string'),
@@ -32,6 +40,7 @@ export const ENVS = [
   env('ssl.cert', 'SSL_CERT', 'string'),
 
   // database stuff
+  env('core.trustProxy', 'CORE_TRUST_PROXY', 'boolean', true),
   env('core.returnHttpsUrls', 'CORE_RETURN_HTTPS_URLS', 'boolean', true),
   env('core.defaultDomain', 'CORE_DEFAULT_DOMAIN', 'string', true),
   env('core.tempDirectory', 'CORE_TEMP_DIRECTORY', 'string', true),
@@ -159,10 +168,61 @@ export const PROP_TO_ENV: Record<string, string | string[]> = Object.fromEntries
   ENVS.map((env) => [env.property, env.variable]),
 );
 
+export const REQUIRED_DB_VARS = [
+  'DATABASE_USERNAME',
+  'DATABASE_PASSWORD',
+  'DATABASE_HOST',
+  'DATABASE_PORT',
+  'DATABASE_NAME',
+];
+
 type EnvResult = {
   env: Record<string, any>;
   dbEnv: Record<string, any>;
 };
+
+export function checkDbVars(): boolean {
+  if (process.env.DATABASE_URL) return true;
+
+  for (let i = 0; i !== REQUIRED_DB_VARS.length; ++i) {
+    if (process.env[REQUIRED_DB_VARS[i]] === undefined) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function readDbVars(): Record<string, string> {
+  const logger = log('config').c('readDbVars');
+
+  if (process.env.DATABASE_URL) return { DATABASE_URL: process.env.DATABASE_URL };
+
+  const dbVars: Record<string, string> = {};
+  for (let i = 0; i !== REQUIRED_DB_VARS.length; ++i) {
+    const value = process.env[REQUIRED_DB_VARS[i]];
+    const valueFileName = process.env[`${REQUIRED_DB_VARS[i]}_FILE`];
+    if (valueFileName) {
+      try {
+        dbVars[REQUIRED_DB_VARS[i]] = readFileSync(valueFileName, 'utf-8').trim();
+      } catch {
+        logger.error(`Failed to read database env value from file for ${REQUIRED_DB_VARS[i]}. Exiting...`);
+        process.exit(1);
+      }
+    } else if (value) {
+      dbVars[REQUIRED_DB_VARS[i]] = value;
+    }
+  }
+
+  if (!Object.keys(dbVars).length || Object.keys(dbVars).length !== REQUIRED_DB_VARS.length) {
+    logger.error(
+      `No database environment variables found (DATABASE_URL or all of [${REQUIRED_DB_VARS.join(', ')}]), exiting...`,
+    );
+    process.exit(1);
+  }
+
+  return dbVars;
+}
 
 export function readEnv(): EnvResult {
   const logger = log('config').c('readEnv');
@@ -173,11 +233,18 @@ export function readEnv(): EnvResult {
 
   for (let i = 0; i !== ENVS.length; ++i) {
     const env = ENVS[i];
-    if (Array.isArray(env.variable)) {
-      env.variable = env.variable.find((v) => process.env[v] !== undefined) || 'DATABASE_URL';
-    }
 
-    const value = process.env[env.variable];
+    let value = process.env[env.variable];
+    const valueFileName = process.env[`${env.variable}_FILE`];
+    if (valueFileName) {
+      try {
+        value = readFileSync(valueFileName, 'utf-8').trim();
+        logger.debug('Using env value from file', { variable: env.variable, file: valueFileName });
+      } catch (e) {
+        logger.error(`Failed to read env value from file for ${env.variable}. Skipping...`).error(e as Error);
+        continue;
+      }
+    }
 
     if (value === undefined) continue;
 

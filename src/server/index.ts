@@ -1,5 +1,6 @@
 import { bytes } from '@/lib/bytes';
 import { reloadSettings } from '@/lib/config';
+import { checkDbVars, REQUIRED_DB_VARS } from '@/lib/config/read/env';
 import { getDatasource } from '@/lib/datasource';
 import { prisma } from '@/lib/db';
 import { runMigrations } from '@/lib/db/migration';
@@ -19,7 +20,7 @@ import { fastifyRateLimit } from '@fastify/rate-limit';
 import { fastifySensible } from '@fastify/sensible';
 import { fastifyStatic } from '@fastify/static';
 import fastify from 'fastify';
-import { mkdir, readFile } from 'fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'fs/promises';
 import ms, { StringValue } from 'ms';
 import { version } from '../../package.json';
 import { checkRateLimit } from './plugins/checkRateLimit';
@@ -46,8 +47,8 @@ async function main() {
   const argv = process.argv.slice(2);
   logger.info('starting zipline', { mode: MODE, version: version, argv });
 
-  if (!process.env.DATABASE_URL) {
-    logger.error('DATABASE_URL not set, exiting...');
+  if (!checkDbVars()) {
+    logger.error(`either DATABASE_URL or all of [${REQUIRED_DB_VARS.join(', ')}] not set, exiting...`);
     process.exit(1);
   }
 
@@ -65,6 +66,13 @@ async function main() {
 
   await mkdir(config.core.tempDirectory, { recursive: true });
 
+  logger.debug('creating server', {
+    port: config.core.port,
+    hostname: config.core.hostname,
+    ssl: notNull(config.ssl.key, config.ssl.cert),
+    trustProxy: config.core.trustProxy,
+  });
+
   const server = fastify({
     https: notNull(config.ssl.key, config.ssl.cert)
       ? {
@@ -72,6 +80,7 @@ async function main() {
           cert: await readFile(config.ssl.cert!, 'utf8'),
         }
       : null,
+    trustProxy: config.core.trustProxy,
   });
 
   await server.register(fastifyCookie, {
@@ -275,6 +284,24 @@ async function main() {
   }
 
   tasks.start();
+
+  if (process.env.DEBUG_MONITOR_MEMORY === 'true') {
+    await writeFile('.memory.log.json', '', 'utf8');
+    setInterval(async () => {
+      const mu = process.memoryUsage();
+      const cpu = process.cpuUsage();
+
+      const entry = {
+        timestamp: new Date().toISOString(),
+        data: {
+          memoryUsage: mu,
+          cpuUsage: cpu,
+        },
+      };
+
+      await appendFile('.memory.log.json', JSON.stringify(entry) + '\n', 'utf8');
+    }, 1000);
+  }
 }
 
 main();
