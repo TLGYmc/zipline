@@ -5,7 +5,6 @@ import { getDatasource } from '@/lib/datasource';
 import { prisma } from '@/lib/db';
 import { runMigrations } from '@/lib/db/migration';
 import { log } from '@/lib/logger';
-import { notNull } from '@/lib/primitive';
 import { isAdministrator } from '@/lib/role';
 import { Tasks } from '@/lib/tasks';
 import clearInvites from '@/lib/tasks/run/clearInvites';
@@ -19,8 +18,16 @@ import { fastifyMultipart } from '@fastify/multipart';
 import { fastifyRateLimit } from '@fastify/rate-limit';
 import { fastifySensible } from '@fastify/sensible';
 import { fastifyStatic } from '@fastify/static';
+import fastifySwagger from '@fastify/swagger';
 import fastify from 'fastify';
-import { appendFile, mkdir, readFile, writeFile } from 'fs/promises';
+import {
+  hasZodFastifySchemaValidationErrors,
+  jsonSchemaTransform,
+  serializerCompiler,
+  validatorCompiler,
+  ZodTypeProvider,
+} from 'fastify-type-provider-zod';
+import { appendFile, mkdir, writeFile } from 'fs/promises';
 import ms, { StringValue } from 'ms';
 import { version } from '../../package.json';
 import { checkRateLimit } from './plugins/checkRateLimit';
@@ -29,6 +36,7 @@ import vitePlugin from './plugins/vite';
 import loadRoutes from './routes';
 import { filesRoute } from './routes/files.dy';
 import { urlsRoute } from './routes/urls.dy';
+import cleanThumbnails from '@/lib/tasks/run/cleanThumbnails';
 
 const MODE = process.env.NODE_ENV || 'production';
 const logger = log('server');
@@ -69,18 +77,39 @@ async function main() {
   logger.debug('creating server', {
     port: config.core.port,
     hostname: config.core.hostname,
-    ssl: notNull(config.ssl.key, config.ssl.cert),
     trustProxy: config.core.trustProxy,
   });
 
   const server = fastify({
-    https: notNull(config.ssl.key, config.ssl.cert)
-      ? {
-          key: await readFile(config.ssl.key!, 'utf8'),
-          cert: await readFile(config.ssl.cert!, 'utf8'),
-        }
-      : null,
     trustProxy: config.core.trustProxy,
+  }).withTypeProvider<ZodTypeProvider>();
+
+  if (process.env.DEBUG_EVENT_EMITTER) {
+    server.addHook('onSend', async (req, res) => {
+      const counts = {
+        listeners: res.raw.eventNames(),
+        close: res.raw.listenerCount('close'),
+        data: res.raw.listenerCount('data'),
+        end: res.raw.listenerCount('end'),
+        error: res.raw.listenerCount('error'),
+      };
+
+      logger.debug('event emitter counts', { path: req.url, ...counts });
+    });
+  }
+  server.setValidatorCompiler(validatorCompiler);
+  server.setSerializerCompiler(serializerCompiler);
+
+  await server.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: 'Zipline',
+        description: 'Zipline API',
+        version: version,
+      },
+      servers: [],
+    },
+    transform: jsonSchemaTransform,
   });
 
   await server.register(fastifyCookie, {
@@ -209,20 +238,40 @@ async function main() {
     }
   });
 
-  server.setErrorHandler((error, _, res) => {
+  server.setErrorHandler((error: any, _, res) => {
+    if (hasZodFastifySchemaValidationErrors(error)) {
+      return res.status(400).send({
+        error: error.message ?? 'Response Validation Error',
+        statusCode: 400,
+        issues: error.validation,
+      });
+    }
+
     if (error.statusCode) {
       res.status(error.statusCode);
       res.send({ error: error.message, statusCode: error.statusCode });
     } else {
-      if (process.env.DEBUG === 'zipline') console.error(error);
+      console.error(error);
 
       res.status(500);
-      res.send({ error: 'Internal Server Error', statusCode: 500, message: error.message });
+      res.send({ error: 'Internal Server Error', statusCode: 500 });
     }
   });
 
   const tasks = new Tasks();
   server.decorate('tasks', tasks);
+
+  if (process.env.ZIPLINE_OUTPUT_OPENAPI === 'true') {
+    server.ready(async (a) => {
+      console.log(a);
+      const openapi = server.swagger();
+      await writeFile('./openapi.json', JSON.stringify(openapi, null, 2), 'utf8');
+
+      logger.info('OpenAPI schema written to openapi.json');
+
+      process.exit(0);
+    });
+  }
 
   await server.listen({
     port: config.core.port,
@@ -235,6 +284,11 @@ async function main() {
   tasks.interval('deletefiles', ms(config.tasks.deleteInterval as StringValue), deleteFiles(prisma));
   tasks.interval('maxviews', ms(config.tasks.maxViewsInterval as StringValue), maxViews(prisma));
   tasks.interval('clearinvites', ms(config.tasks.clearInvitesInterval as StringValue), clearInvites(prisma));
+  tasks.interval(
+    'cleanthumbnails',
+    ms(config.tasks.cleanThumbnailsInterval as StringValue),
+    cleanThumbnails(prisma),
+  );
 
   if (config.features.metrics)
     tasks.interval('metrics', ms(config.tasks.metricsInterval as StringValue), metrics(prisma));

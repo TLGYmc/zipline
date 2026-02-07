@@ -9,7 +9,7 @@ import { secondlyRatelimit } from '@/lib/ratelimits';
 import { readThemes } from '@/lib/theme/file';
 import { administratorMiddleware } from '@/server/middleware/administrator';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
 import { statSync } from 'fs';
 import ms, { StringValue } from 'ms';
 import { cpus } from 'os';
@@ -23,8 +23,6 @@ export type ApiServerSettingsWebResponse = {
   config: ReturnType<typeof safeConfig>;
   codeMap: { ext: string; mime: string; name: string }[];
 };
-type Body = Partial<Settings>;
-
 export const reservedRoutes = [
   '/dashboard',
   '/auth',
@@ -36,6 +34,16 @@ export const reservedRoutes = [
   '/manifest.json',
   '/favicon.ico',
 ];
+
+const jsonTransform = (value: any, ctx: z.RefinementCtx) => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'Invalid JSON' });
+    return z.NEVER;
+  }
+};
 
 const zMs = z.string().refine((value) => ms(value as StringValue) > 0, 'Value must be greater than 0');
 const zBytes = z.string().refine((value) => bytes(value) > 0, 'Value must be greater than 0');
@@ -61,7 +69,7 @@ const discordEmbed = z
     z.string(),
   ])
   .nullable()
-  .transform((value) => (typeof value === 'string' ? JSON.parse(value) : value))
+  .transform(jsonTransform)
   .transform((value) =>
     typeof value === 'object' ? (Object.keys(value || {}).length ? value : null) : value,
   );
@@ -69,9 +77,9 @@ const discordEmbed = z
 const logger = log('api').c('server').c('settings');
 
 export const PATH = '/api/server/settings';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Body: Body }>(
+export default typedPlugin(
+  async (server) => {
+    server.get(
       PATH,
       {
         preHandler: [userMiddleware, administratorMiddleware],
@@ -92,9 +100,12 @@ export default fastifyPlugin(
       },
     );
 
-    server.patch<{ Body: Body }>(
+    server.patch(
       PATH,
       {
+        schema: {
+          body: z.custom<Partial<Settings>>(),
+        },
         preHandler: [userMiddleware, administratorMiddleware],
         ...secondlyRatelimit(1),
       },
@@ -129,6 +140,7 @@ export default fastifyPlugin(
             tasksMaxViewsInterval: zMs,
             tasksThumbnailsInterval: zMs,
             tasksMetricsInterval: zMs,
+            tasksCleanThumbnailsInterval: zMs,
 
             filesRoute: z
               .string()
@@ -150,6 +162,7 @@ export default fastifyPlugin(
             filesMaxFileSize: zBytes,
 
             filesDefaultExpiration: zMs.nullable(),
+            filesMaxExpiration: zMs.nullable(),
             filesAssumeMimetypes: z.boolean(),
             filesDefaultDateFormat: z.string(),
             filesRemoveGpsMetadata: z.boolean(),
@@ -207,7 +220,7 @@ export default fastifyPlugin(
                 ),
                 z.string(),
               ])
-              .transform((value) => (typeof value === 'string' ? JSON.parse(value) : value)),
+              .transform(jsonTransform),
             websiteLoginBackground: z.url().nullable(),
             websiteLoginBackgroundBlur: z.boolean(),
             websiteDefaultAvatar: z
@@ -281,7 +294,18 @@ export default fastifyPlugin(
 
             mfaTotpEnabled: z.boolean(),
             mfaTotpIssuer: z.string(),
-            mfaPasskeys: z.boolean(),
+
+            mfaPasskeysEnabled: z.boolean(),
+            mfaPasskeysRpID: z
+              .string()
+              .trim()
+              .transform((v) => (v.length === 0 ? null : v))
+              .nullable(),
+            mfaPasskeysOrigin: z
+              .string()
+              .trim()
+              .transform((v) => (v.length === 0 ? null : v))
+              .nullable(),
 
             ratelimitEnabled: z.boolean(),
             ratelimitMax: z.number().refine((value) => value > 0, 'Value must be greater than 0'),
@@ -383,6 +407,43 @@ export default fastifyPlugin(
           .refine((data) => !data.ratelimitWindow || (data.ratelimitMax && data.ratelimitMax > 0), {
             message: 'ratelimitMax must be set if ratelimitWindow is set',
             path: ['ratelimitMax'],
+          })
+          .superRefine((data, ctx) => {
+            if (!data.filesDefaultExpiration || !data.filesMaxExpiration) return;
+
+            const def = ms(data.filesDefaultExpiration as StringValue);
+            const max = ms(data.filesMaxExpiration as StringValue);
+
+            if (def > max) {
+              ctx.addIssue({
+                code: 'custom',
+                message: 'filesDefaultExpiration must be less than or equal to filesMaxExpiration',
+                path: ['filesDefaultExpiration'],
+              });
+            }
+          })
+          .superRefine((data, ctx) => {
+            if (data.mfaPasskeysEnabled) {
+              if (!data.mfaPasskeysRpID || data.mfaPasskeysRpID.length === 0) {
+                ctx.addIssue({
+                  path: ['mfaPasskeysRpID'],
+                  message: 'RP ID is required when passkeys are enabled',
+                  code: 'custom',
+                });
+              }
+
+              if (!data.mfaPasskeysOrigin || data.mfaPasskeysOrigin.length === 0) {
+                ctx.addIssue({
+                  path: ['mfaPasskeysOrigin'],
+                  message: 'Origin is required when passkeys are enabled',
+                  code: 'custom',
+                });
+              }
+            }
+          })
+
+          .refine((data) => Object.keys(data).length > 0, {
+            message: 'No settings provided to update',
           });
 
         const result = settingsBodySchema.safeParse(req.body);
@@ -423,8 +484,6 @@ export default fastifyPlugin(
         return res.send({ settings: newSettings, tampered: global.__tamperedConfig__ || [] });
       },
     );
-
-    done();
   },
   { name: PATH },
 );

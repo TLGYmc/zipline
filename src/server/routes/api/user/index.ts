@@ -3,45 +3,51 @@ import { prisma } from '@/lib/db';
 import { User, userSelect } from '@/lib/db/models/user';
 import { log } from '@/lib/logger';
 import { secondlyRatelimit } from '@/lib/ratelimits';
+import { zStringTrimmed } from '@/lib/validation';
 import { userMiddleware } from '@/server/middleware/user';
 import { getSession, saveSession } from '@/server/session';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiUserResponse = {
   user?: User;
 };
 
-type Body = {
-  username?: string;
-  password?: string;
-  avatar?: string;
-  view?: {
-    content?: string;
-    embed?: boolean;
-    embedTitle?: string;
-    embedDescription?: string;
-    embedColor?: string;
-    embedSiteName?: string;
-    enabled?: boolean;
-    align?: 'left' | 'center' | 'right';
-    showMimetype?: boolean;
-    showTags?: boolean;
-    showFolder?: boolean;
-  };
-};
-
 const logger = log('api').c('user');
 
 export const PATH = '/api/user';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     server.get(PATH, { preHandler: [userMiddleware] }, async (req, res) => {
       return res.send({ user: req.user, token: req.cookies.zipline_token });
     });
 
-    server.patch<{ Body: Body }>(
+    server.patch(
       PATH,
       {
+        schema: {
+          body: z.object({
+            username: zStringTrimmed.optional(),
+            password: zStringTrimmed.optional(),
+            avatar: z.string().nullish(),
+            view: z
+              .object({
+                content: z.string().nullish(),
+                embed: z.boolean().optional(),
+                embedTitle: z.string().nullish(),
+                embedDescription: z.string().nullish(),
+                embedColor: z.string().nullish(),
+                embedSiteName: z.string().nullish(),
+                enabled: z.boolean().optional(),
+                align: z.enum(['left', 'center', 'right']).optional(),
+                showMimetype: z.boolean().optional(),
+                showTags: z.boolean().optional(),
+                showFolder: z.boolean().optional(),
+              })
+              .partial()
+              .optional(),
+          }),
+        },
         preHandler: [userMiddleware],
         ...secondlyRatelimit(1),
       },
@@ -112,8 +118,6 @@ export default fastifyPlugin(
         return res.send({ user, token: req.cookies.zipline_token });
       },
     );
-
-    done();
   },
   { name: PATH },
 );

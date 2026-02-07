@@ -1,12 +1,15 @@
 import RelativeDate from '@/components/RelativeDate';
 import { fetchApi } from '@/lib/fetchApi';
-import { registerWeb } from '@/lib/passkey';
 import { useUserStore } from '@/lib/store/user';
-import { RegistrationResponseJSON } from '@github/webauthn-json/dist/types/browser-ponyfill';
+import { UserPasskey } from '@/prisma/client';
 import { ActionIcon, Button, Group, Modal, Paper, Stack, Text, TextInput } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { UserPasskey } from '@/prisma/client';
+import {
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+  startRegistration,
+} from '@simplewebauthn/browser';
 import { IconKey, IconKeyOff, IconTrashFilled } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
 import { mutate } from 'swr';
@@ -23,10 +26,15 @@ export default function PasskeyButton() {
 
   const handleRegisterPasskey = async () => {
     try {
+      const { data } = await fetchApi<PublicKeyCredentialCreationOptionsJSON>(
+        '/api/user/mfa/passkey/options',
+        'GET',
+      );
+
       setPasskeyLoading(true);
-      const res = await registerWeb(user!);
+      const res = await startRegistration({ optionsJSON: data! });
       setNamerShown(true);
-      setSavedKey(res.toJSON());
+      setSavedKey(res);
     } catch (e: any) {
       setPasskeyError(e.message ?? 'An error occurred while creating a passkey');
       setPasskeyLoading(false);
@@ -38,7 +46,7 @@ export default function PasskeyButton() {
     if (!savedKey) return;
 
     const { error } = await fetchApi('/api/user/mfa/passkey', 'POST', {
-      reg: savedKey,
+      response: savedKey,
       name: name.trim(),
     });
 
@@ -139,6 +147,12 @@ export default function PasskeyButton() {
                     </>
                   )}
                 </Text>
+                {!(passkey?.reg as Record<string, any>).webauthn && (
+                  <Text size='xs' mt='xs' c='red'>
+                    Warning: This passkey was created with an older version of Zipline and <b>WILL NOT</b>{' '}
+                    work with this version. Please delete and recreate this passkey to ensure compatibility.
+                  </Text>
+                )}
               </Paper>
             ))}
           </>

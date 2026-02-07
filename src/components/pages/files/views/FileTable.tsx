@@ -1,10 +1,12 @@
+import FolderComboboxOptions from '@/components/folders/FolderComboboxOptions';
 import RelativeDate from '@/components/RelativeDate';
 import { addMultipleToFolder, copyFile, deleteFile, downloadFile } from '@/components/file/actions';
 import { Response } from '@/lib/api/response';
 import { bytes } from '@/lib/bytes';
 import { type File } from '@/lib/db/models/file';
-import { Folder } from '@/lib/db/models/folder';
 import { Tag } from '@/lib/db/models/tag';
+import { buildFolderHierarchy } from '@/lib/folderHierarchy';
+import { useFolders } from '@/lib/hooks/useFolders';
 import { useQueryState } from '@/lib/hooks/useQueryState';
 import { useFileTableSettingsStore } from '@/lib/store/fileTableSettings';
 import { useSettingsStore } from '@/lib/store/settings';
@@ -38,9 +40,10 @@ import {
   IconTrashFilled,
 } from '@tabler/icons-react';
 import { DataTable } from 'mantine-datatable';
-import { lazy, useEffect, useReducer, useState } from 'react';
+import { lazy, useEffect, useMemo, useReducer, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
+
 import TableEditModal, { NAMES } from '../TableEditModal';
 import { bulkDelete, bulkFavorite } from '../bulk';
 import TagPill from '../tags/TagPill';
@@ -193,9 +196,12 @@ export default function FileTable({
 
   const fields = useFileTableSettingsStore((state) => state.fields);
 
-  const { data: folders } = useSWR<Extract<Response['/api/user/folders'], Folder[]>>(
-    '/api/user/folders?noincl=true',
-  );
+  const { data: folders } = useFolders();
+
+  const folderOptions = useMemo(() => {
+    if (!folders) return [];
+    return buildFolderHierarchy(folders);
+  }, [folders]);
 
   const [page, setPage] = useQueryState('page', 1);
   const [perpage, setPerpage] = useState(20);
@@ -212,34 +218,22 @@ export default function FileTable({
     | 'favorite'
   >('createdAt');
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const [searchField, setSearchField] = useState<'name' | 'originalName' | 'type' | 'tags' | 'id'>('name');
   const [searchQuery, setSearchQuery] = useReducer(
-    (state: ReducerQuery['state'], action: ReducerQuery['action']) => {
-      return {
-        ...state,
-        [action.field]: action.query,
-      };
-    },
+    (
+      _state: { name: string; originalName: string; type: string; tags: string; id: string },
+      action: { field: keyof ReducerQuery['state']; query: string },
+    ) => ({
+      name: action.field === 'name' ? action.query : '',
+      originalName: action.field === 'originalName' ? action.query : '',
+      type: action.field === 'type' ? action.query : '',
+      tags: action.field === 'tags' ? action.query : '',
+      id: action.field === 'id' ? action.query : '',
+    }),
     { name: '', originalName: '', type: '', tags: '', id: '' },
   );
   const [debouncedQuery, setDebouncedQuery] = useState(searchQuery);
-
-  useEffect(() => {
-    if (idSearch.open) return;
-
-    setSearchQuery({
-      field: 'id',
-      query: '',
-    });
-  }, [idSearch.open]);
-
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedQuery(searchQuery), 300);
-
-    return () => clearTimeout(handler);
-  }, [searchQuery]);
 
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
@@ -272,6 +266,11 @@ export default function FileTable({
       },
     }),
   });
+
+  const [selectedFileId, setSelectedFile] = useState<string | null>(null);
+  const selectedFile = selectedFileId
+    ? (data?.page.find((file) => file.id === selectedFileId) ?? null)
+    : null;
 
   const FIELDS = [
     {
@@ -367,28 +366,13 @@ export default function FileTable({
     return aIndex - bIndex;
   });
 
-  useEffect(() => {
-    if (data && selectedFile) {
-      const file = data.page.find((x) => x.id === selectedFile.id);
-
-      if (file) {
-        setSelectedFile(file);
-      }
-    }
-  }, [data]);
-
-  useEffect(() => {
-    for (const field of ['name', 'originalName', 'type', 'tags', 'id'] as const) {
-      if (field !== searchField) {
-        setSearchQuery({
-          field,
-          query: '',
-        });
-      }
-    }
-  }, [searchField]);
-
   const unfavoriteAll = selectedFiles.every((file) => file.favorite);
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
   return (
     <>
@@ -456,11 +440,17 @@ export default function FileTable({
                           combobox.updateSelectedOptionIndex();
                           setFolderSearch(event.currentTarget.value);
                         }}
-                        onClick={() => combobox.openDropdown()}
-                        onFocus={() => combobox.openDropdown()}
+                        onClick={() => {
+                          combobox.openDropdown();
+                          setFolderSearch('');
+                        }}
+                        onFocus={() => {
+                          combobox.openDropdown();
+                          setFolderSearch('');
+                        }}
                         onBlur={() => {
                           combobox.closeDropdown();
-                          setFolderSearch(folderSearch || '');
+                          setFolderSearch('');
                         }}
                         placeholder='Add to folder...'
                         rightSectionPointerEvents='none'
@@ -468,15 +458,7 @@ export default function FileTable({
                     </Combobox.Target>
 
                     <Combobox.Dropdown>
-                      <Combobox.Options>
-                        {folders
-                          ?.filter((f) => f.name.toLowerCase().includes(folderSearch.toLowerCase().trim()))
-                          .map((f) => (
-                            <Combobox.Option value={f.id} key={f.id}>
-                              {f.name}
-                            </Combobox.Option>
-                          ))}
-                      </Combobox.Options>
+                      <FolderComboboxOptions folderOptions={folderOptions} searchValue={folderSearch} />
                     </Combobox.Dropdown>
                   </Combobox>
                 )}
@@ -594,7 +576,7 @@ export default function FileTable({
             setSort(data.columnAccessor as any);
             setOrder(data.direction);
           }}
-          onCellClick={({ record }) => setSelectedFile(record)}
+          onCellClick={({ record }) => setSelectedFile(record.id)}
           selectedRecords={selectedFiles}
           onSelectedRecordsChange={setSelectedFiles}
           paginationText={({ from, to, totalRecords }) => `${from} - ${to} / ${totalRecords} files`}

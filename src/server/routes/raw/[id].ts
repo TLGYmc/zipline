@@ -5,8 +5,8 @@ import { datasource } from '@/lib/datasource';
 import { prisma } from '@/lib/db';
 import { log } from '@/lib/logger';
 import { guess } from '@/lib/mimes';
+import typedPlugin from '@/server/typedPlugin';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import fastifyPlugin from 'fastify-plugin';
 
 const viewsCache = new Map<string, number>();
 const VIEW_WINDOW = 5 * 1000;
@@ -124,6 +124,9 @@ export const rawFileHandler = async (
     }
   };
 
+  const fileType = file?.type || 'application/octet-stream';
+  const contentType = fileType.startsWith('text/') ? `${fileType}; charset=utf-8` : fileType;
+
   if (req.headers.range) {
     const [start, end] = parseRange(req.headers.range, size);
     if (start >= size || end >= size) {
@@ -133,12 +136,12 @@ export const rawFileHandler = async (
       await countView();
 
       return res
-        .type(file?.type || 'application/octet-stream')
+        .type(contentType)
         .headers({
           'Content-Length': size,
           ...(file?.originalName
             ? {
-                'Content-Disposition': `${download ? 'attachment; ' : ''}filename="${encodeURIComponent(file.originalName)}"`,
+                'Content-Disposition': `${download ? 'attachment; ' : ''}filename*=utf-8''${encodeURIComponent(file.originalName)}`,
               }
             : download && { 'Content-Disposition': 'attachment;' }),
         })
@@ -152,14 +155,14 @@ export const rawFileHandler = async (
     await countView();
 
     return res
-      .type(file?.type || 'application/octet-stream')
+      .type(contentType)
       .headers({
         'Content-Range': `bytes ${start}-${end}/${size}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': end - start + 1,
         ...(file?.originalName
           ? {
-              'Content-Disposition': `${download ? 'attachment; ' : ''}filename="${encodeURIComponent(file.originalName)}"`,
+              'Content-Disposition': `${download ? 'attachment; ' : ''}filename*=utf-8''${encodeURIComponent(file.originalName)}`,
             }
           : download && { 'Content-Disposition': 'attachment;' }),
       })
@@ -173,13 +176,13 @@ export const rawFileHandler = async (
   await countView();
 
   return res
-    .type(file?.type || 'application/octet-stream')
+    .type(contentType)
     .headers({
       'Content-Length': size,
       'Accept-Ranges': 'bytes',
       ...(file?.originalName
         ? {
-            'Content-Disposition': `${download ? 'attachment; ' : ''}filename="${encodeURIComponent(file.originalName)}"`,
+            'Content-Disposition': `${download ? 'attachment; ' : ''}filename*=utf-8''${encodeURIComponent(file.originalName)}`,
           }
         : download && { 'Content-Disposition': 'attachment;' }),
     })
@@ -188,11 +191,9 @@ export const rawFileHandler = async (
 };
 
 export const PATH = '/raw/:id';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     server.get(PATH, rawFileHandler);
-
-    done();
   },
   { name: PATH },
 );

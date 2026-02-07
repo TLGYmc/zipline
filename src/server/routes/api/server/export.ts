@@ -2,10 +2,11 @@ import { Export4 } from '@/lib/import/version4/validateExport';
 import { log } from '@/lib/logger';
 import { administratorMiddleware } from '@/server/middleware/administrator';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
 
 import { prisma } from '@/lib/db';
+import typedPlugin from '@/server/typedPlugin';
 import { cpus, hostname, platform, release } from 'os';
+import z from 'zod';
 import { version } from '../../../../../package.json';
 
 async function getCounts() {
@@ -30,19 +31,20 @@ async function getCounts() {
 
 export type ApiServerExport = Export4;
 
-type Query = {
-  nometrics?: string;
-  counts?: string;
-};
-
 const logger = log('api').c('server').c('export');
 
 export const PATH = '/api/server/export';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Querystring: Query }>(
+export default typedPlugin(
+  async (server) => {
+    server.get(
       PATH,
       {
+        schema: {
+          querystring: z.object({
+            nometrics: z.string().optional(),
+            counts: z.string().optional(),
+          }),
+        },
         preHandler: [userMiddleware, administratorMiddleware],
       },
       async (req, res) => {
@@ -192,6 +194,7 @@ export default fastifyPlugin(
               allowUploads: folder.allowUploads,
               userId: folder.userId,
               files: folder.files.map((file) => file.id),
+              parentId: folder.parentId,
             });
           }
 
@@ -273,13 +276,11 @@ export default fastifyPlugin(
         }
 
         return res
-          .header('Content-Disposition', `attachment; filename="zipline_export_${Date.now()}.json"`)
+          .header('Content-Disposition', `attachment; filename*=utf-8''zipline4_export_${Date.now()}.json`)
           .type('application/json')
           .send(export4);
       },
     );
-
-    done();
   },
   { name: PATH },
 );

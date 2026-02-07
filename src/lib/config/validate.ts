@@ -109,6 +109,7 @@ export const schema = z.object({
     maxViewsInterval: z.string().default('30min'),
     thumbnailsInterval: z.string().default('30min'),
     metricsInterval: z.string().default('30min'),
+    cleanThumbnailsInterval: z.string().default('1d'),
   }),
   files: z.object({
     route: z.string().startsWith('/').min(1).trim().toLowerCase().default('/u'),
@@ -119,6 +120,7 @@ export const schema = z.object({
     disabledExtensions: z.array(z.string()).default([]),
     maxFileSize: z.string().default('100mb'),
     defaultExpiration: z.string().nullable().default(null),
+    maxExpiration: z.string().nullable().default(null),
     assumeMimetypes: z.boolean().default(false),
     defaultDateFormat: z.string().default('YYYY-MM-DD_HH:mm:ss'),
     removeGpsMetadata: z.boolean().default(false),
@@ -245,7 +247,22 @@ export const schema = z.object({
       enabled: z.boolean().default(false),
       issuer: z.string().default('Zipline'),
     }),
-    passkeys: z.boolean().default(true),
+    passkeys: z.object({
+      enabled: z.boolean().default(false),
+      rpID: z
+        .string()
+        .trim()
+        .transform((v) => (v.length > 0 ? v : null))
+        .nullable()
+        .default(null),
+      origin: z
+        .string()
+        .trim()
+        .transform((v) => (v.length > 0 ? v : null))
+        .refine((v) => (v ? URL.canParse(v) : true), 'Invalid URL')
+        .nullable()
+        .default(null),
+    }),
   }),
   oauth: z.object({
     bypassLocalLogin: z.boolean().default(false),
@@ -337,18 +354,6 @@ export const schema = z.object({
   httpWebhook: z.object({
     onUpload: z.url().nullable().default(null),
     onShorten: z.url().nullable().default(null),
-  }),
-  ssl: z.object({
-    key: z
-      .string()
-      .transform((s) => resolve(s))
-      .nullable()
-      .default(null),
-    cert: z
-      .string()
-      .transform((s) => resolve(s))
-      .nullable()
-      .default(null),
   }),
   pwa: z.object({
     enabled: z.boolean().default(true),

@@ -2,6 +2,7 @@ import { bytes } from '@/lib/bytes';
 import { config } from '@/lib/config';
 import { hashPassword } from '@/lib/crypto';
 import { prisma } from '@/lib/db';
+import { sanitizeFilename } from '@/lib/fs';
 import { log } from '@/lib/logger';
 import { guess } from '@/lib/mimes';
 import { randomCharacters } from '@/lib/random';
@@ -9,7 +10,7 @@ import { formatFileName } from '@/lib/uploader/formatFileName';
 import { UploadHeaders, UploadOptions, parseHeaders } from '@/lib/uploader/parseHeaders';
 import { Prisma } from '@/prisma/client';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
 import { readdir, rename, rm } from 'fs/promises';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
@@ -25,8 +26,8 @@ export type ApiUploadPartialResponse = ApiUploadResponse & {
 };
 
 export const PATH = '/api/upload/partial';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     const rateLimit = server.rateLimit
       ? server.rateLimit()
       : (_req: any, _res: any, next: () => any) => next();
@@ -157,7 +158,12 @@ export default fastifyPlugin(
         let fileName = formatFileName(format, decodeURIComponent(options.partial.filename));
 
         if (options.overrides?.filename || format === 'name') {
-          if (options.overrides?.filename) fileName = decodeURIComponent(options.overrides!.filename!);
+          if (options.overrides?.filename) {
+            const sanitized = sanitizeFilename(options.overrides!.filename!);
+            if (!sanitized) return res.badRequest('Invalid characters in filename override');
+
+            fileName = sanitized;
+          }
           const fullFileName = `${fileName}${extension}`;
 
           const existing = await prisma.file.findFirst({
@@ -166,6 +172,14 @@ export default fastifyPlugin(
             },
           });
           if (existing) return res.badRequest(`A file with the name "${fullFileName}" already exists`);
+        } else if (format === 'random') {
+          let fullFileName = `${fileName}${extension}`;
+          let existing = await prisma.file.findFirst({ where: { name: fullFileName } });
+          while (existing) {
+            fileName = formatFileName(format, decodeURIComponent(options.partial.filename));
+            fullFileName = `${fileName}${extension}`;
+            existing = await prisma.file.findFirst({ where: { name: fullFileName } });
+          }
         }
 
         // determine mimetype
@@ -274,8 +288,6 @@ export default fastifyPlugin(
 
       return res.send(response);
     });
-
-    done();
   },
   { name: PATH },
 );

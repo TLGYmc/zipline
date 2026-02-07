@@ -2,7 +2,7 @@ import { config } from '@/lib/config';
 import { log } from '@/lib/logger';
 import { getVersion } from '@/lib/version';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
 
 export type ApiVersionResponse = {
   details: ReturnType<typeof getVersion>;
@@ -10,7 +10,7 @@ export type ApiVersionResponse = {
   cached: true;
 };
 
-interface VersionAPI {
+type VersionAPI = {
   isUpstream: boolean;
   isRelease: boolean;
   isLatest: boolean;
@@ -28,7 +28,7 @@ interface VersionAPI {
       pull: boolean;
     };
   };
-}
+};
 
 const logger = log('api').c('version');
 
@@ -36,8 +36,8 @@ let cachedData: VersionAPI | null = null;
 let cachedAt = 0;
 
 export const PATH = '/api/version';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     server.get(PATH, { preHandler: [userMiddleware] }, async (_, res) => {
       if (!config.features.versionChecking) return res.notFound();
 
@@ -56,7 +56,13 @@ export default fastifyPlugin(
         const resp = await fetch(url);
 
         if (!resp.ok) {
-          return res.internalServerError('failed to fetch version details: ' + (await resp.text()));
+          logger.error('failed to fetch version details', {
+            status: resp.status,
+            statusText: resp.statusText,
+            text: await resp.text(),
+          });
+
+          return res.internalServerError('failed to fetch version details');
         }
 
         const data: VersionAPI = await resp.json();
@@ -71,11 +77,9 @@ export default fastifyPlugin(
         });
       } catch (e) {
         logger.error('failed to fetch version details').error(e as Error);
-        return res.internalServerError('failed to fetch version details: ' + (e as Error).message);
+        return res.internalServerError('failed to fetch version details');
       }
     });
-
-    done();
   },
   { name: PATH },
 );

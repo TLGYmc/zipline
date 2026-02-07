@@ -3,62 +3,117 @@ import { fileSelect } from '@/lib/db/models/file';
 import { Folder, cleanFolder, cleanFolders } from '@/lib/db/models/folder';
 import { log } from '@/lib/logger';
 import { secondlyRatelimit } from '@/lib/ratelimits';
+import { canInteract } from '@/lib/role';
+import { zQsBoolean } from '@/lib/validation';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiUserFoldersResponse = Folder | Folder[];
-
-type Body = {
-  files?: string[];
-
-  name?: string;
-  isPublic?: boolean;
-};
-
-type Query = {
-  noincl?: boolean;
-};
 
 const logger = log('api').c('user').c('folders');
 
 export const PATH = '/api/user/folders';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Querystring: Query }>(PATH, { preHandler: [userMiddleware] }, async (req, res) => {
-      const { noincl } = req.query;
+export default typedPlugin(
+  async (server) => {
+    server.get(
+      PATH,
+      {
+        schema: {
+          querystring: z.object({
+            noincl: zQsBoolean.optional(),
+            user: z.string().optional(),
+            parentId: z.string().optional(),
+            root: zQsBoolean.optional(),
+          }),
+        },
+        preHandler: [userMiddleware],
+      },
+      async (req, res) => {
+        const { noincl, user, parentId, root } = req.query;
 
-      const folders = await prisma.folder.findMany({
-        where: {
-          userId: req.user.id,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        ...(!noincl && {
+        if (user) {
+          const user = await prisma.user.findUnique({
+            where: {
+              id: req.user.id,
+            },
+          });
+
+          if (!user) return res.notFound();
+          if (req.user.id !== user.id) {
+            if (!canInteract(req.user.role, user.role)) return res.notFound();
+          }
+        }
+
+        const folders = await prisma.folder.findMany({
+          where: {
+            userId: user || req.user.id,
+            ...(root && { parentId: null }),
+            ...(parentId && { parentId }),
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
           include: {
-            files: {
-              select: {
-                ...fileSelect,
-                password: true,
+            ...(!noincl && {
+              files: {
+                select: {
+                  ...fileSelect,
+                  password: true,
+                },
+                orderBy: {
+                  createdAt: 'desc',
+                },
               },
-              orderBy: {
-                createdAt: 'desc',
+            }),
+            _count: {
+              select: {
+                children: true,
+                files: true,
+              },
+            },
+            parent: {
+              select: {
+                id: true,
+                name: true,
+                parentId: true,
               },
             },
           },
-        }),
-      });
+        });
 
-      return res.send(cleanFolders(folders));
-    });
+        return res.send(cleanFolders(folders as unknown as Partial<Folder>[]));
+      },
+    );
 
-    server.post<{ Body: Body }>(
+    server.post(
       PATH,
-      { preHandler: [userMiddleware], ...secondlyRatelimit(2) },
+      {
+        schema: {
+          body: z.object({
+            name: z.string().trim().min(1),
+            isPublic: z.boolean().optional(),
+            files: z.array(z.string()).optional(),
+            parentId: z.string().optional(),
+          }),
+        },
+        preHandler: [userMiddleware],
+        ...secondlyRatelimit(2),
+      },
       async (req, res) => {
-        const { name, isPublic } = req.body;
+        const { name, isPublic, parentId } = req.body;
         let files = req.body.files;
-        if (!name) return res.badRequest('Name is required');
+
+        if (parentId) {
+          const parentFolder = await prisma.folder.findUnique({
+            where: { id: parentId },
+            select: { id: true, userId: true },
+          });
+
+          if (!parentFolder) return res.notFound('Parent folder not found');
+          if (parentFolder.userId !== req.user.id)
+            return res.forbidden('Parent folder does not belong to you');
+        }
 
         if (files) {
           const filesAdd = await prisma.file.findMany({
@@ -81,6 +136,7 @@ export default fastifyPlugin(
           data: {
             name,
             userId: req.user.id,
+            ...(parentId && { parentId }),
             ...(files?.length && {
               files: {
                 connect: files!.map((f) => ({ id: f })),
@@ -95,6 +151,19 @@ export default fastifyPlugin(
                 password: true,
               },
             },
+            _count: {
+              select: {
+                children: true,
+                files: true,
+              },
+            },
+            parent: {
+              select: {
+                id: true,
+                name: true,
+                parentId: true,
+              },
+            },
           },
         });
 
@@ -102,13 +171,12 @@ export default fastifyPlugin(
           folder: folder.name,
           user: req.user.username,
           files: files?.length || undefined,
+          parentId: parentId || undefined,
         });
 
         return res.send(cleanFolder(folder));
       },
     );
-
-    done();
   },
   { name: PATH },
 );

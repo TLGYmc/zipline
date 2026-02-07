@@ -1,4 +1,3 @@
-import { Prisma } from '@/prisma/client';
 import { bytes } from '@/lib/bytes';
 import { compressFile, CompressResult } from '@/lib/compress';
 import { config } from '@/lib/config';
@@ -6,14 +5,16 @@ import { hashPassword } from '@/lib/crypto';
 import { datasource } from '@/lib/datasource';
 import { prisma } from '@/lib/db';
 import { fileSelect } from '@/lib/db/models/file';
+import { sanitizeFilename } from '@/lib/fs';
 import { removeGps } from '@/lib/gps';
 import { log } from '@/lib/logger';
 import { guess } from '@/lib/mimes';
 import { formatFileName } from '@/lib/uploader/formatFileName';
-import { UploadHeaders, parseHeaders } from '@/lib/uploader/parseHeaders';
+import { parseHeaders, UploadHeaders } from '@/lib/uploader/parseHeaders';
 import { onUpload } from '@/lib/webhooks';
+import { Prisma } from '@/prisma/client';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
 import { stat } from 'fs/promises';
 import { extname } from 'path';
 
@@ -56,8 +57,8 @@ export type ApiUploadResponse = {
 const logger = log('api').c('upload');
 
 export const PATH = '/api/upload';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     const rateLimit = server.rateLimit
       ? server.rateLimit()
       : (_req: any, _res: any, next: () => any) => next();
@@ -152,11 +153,25 @@ export default fastifyPlugin(
         const format = options.format || config.files.defaultFormat;
         let fileName = formatFileName(format, file.filename);
         if (options.overrides?.filename || format === 'name') {
-          if (options.overrides?.filename) fileName = decodeURIComponent(options.overrides!.filename!);
+          if (options.overrides?.filename) {
+            const sanitized = sanitizeFilename(options.overrides.filename!);
+            if (!sanitized) return res.badRequest(`file[${i}]: Invalid characters in filename override`);
+
+            fileName = sanitized;
+          }
+
           const fullFileName = `${fileName}${extension}`;
           const existing = await prisma.file.findFirst({ where: { name: fullFileName } });
           if (existing)
             return res.badRequest(`file[${i}]: A file with the name "${fullFileName}" already exists`);
+        } else if (format === 'random') {
+          let fullFileName = `${fileName}${extension}`;
+          let existing = await prisma.file.findFirst({ where: { name: fullFileName } });
+          while (existing) {
+            fileName = formatFileName(format, file.filename);
+            fullFileName = `${fileName}${extension}`;
+            existing = await prisma.file.findFirst({ where: { name: fullFileName } });
+          }
         }
 
         // determine mimetype
@@ -175,7 +190,13 @@ export default fastifyPlugin(
             quality: options.imageCompression.percent,
             type: options.imageCompression.type,
           });
-          logger.c('compress').debug(`compressed file ${file.filename}`);
+
+          if (compressed.failed) {
+            compressed = undefined;
+            logger.warn('failed to compress file, using original.');
+          } else {
+            logger.c('compress').debug(`compressed file ${file.filename}`);
+          }
         }
 
         // remove gps metadata if requested
@@ -191,7 +212,7 @@ export default fastifyPlugin(
 
         const data: Prisma.FileCreateInput = {
           name: `${fileName}${compressed ? '.' + compressed.ext : extension}`,
-          size: tempFileStats.size,
+          size: compressed?.buffer?.length ?? tempFileStats.size,
           type: compressed?.mimetype ?? mimetype,
           User: { connect: { id: req.user ? req.user.id : options.folder ? folder?.userId : undefined } },
         };
@@ -207,7 +228,9 @@ export default fastifyPlugin(
           select: fileSelect,
         });
 
-        await datasource.put(fileUpload.name, file.filepath, { mimetype: fileUpload.type });
+        await datasource.put(fileUpload.name, compressed?.buffer ?? file.filepath, {
+          mimetype: fileUpload.type,
+        });
 
         const responseUrl = `${domain}${config.files.route === '/' || config.files.route === '' ? '' : `${config.files.route}`}/${fileUpload.name}`;
 
@@ -222,7 +245,7 @@ export default fastifyPlugin(
 
         logger.info(
           `${req.user ? req.user.username : '[anonymous folder upload]'} uploaded ${fileUpload.name}`,
-          { size: bytes(fileUpload.size), ip: req.ip },
+          { size: bytes(compressed?.buffer?.length ?? fileUpload.size), ip: req.ip },
         );
 
         await onUpload(config, {
@@ -249,8 +272,6 @@ export default fastifyPlugin(
 
       return res.send(response);
     });
-
-    done();
   },
   { name: PATH },
 );

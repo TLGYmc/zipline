@@ -2,24 +2,26 @@ import { log } from '@/lib/logger';
 import { secondlyRatelimit } from '@/lib/ratelimits';
 import { administratorMiddleware } from '@/server/middleware/administrator';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiServerThumbnailsResponse = {
   status: string;
 };
 
-type Body = {
-  rerun: boolean;
-};
-
 const logger = log('api').c('server').c('thumbnails');
 
 export const PATH = '/api/server/thumbnails';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.post<{ Body: Body }>(
+export default typedPlugin(
+  async (server) => {
+    server.post(
       PATH,
       {
+        schema: {
+          body: z.object({
+            rerun: z.boolean().default(false),
+          }),
+        },
         preHandler: [userMiddleware, administratorMiddleware],
         ...secondlyRatelimit(1),
       },
@@ -29,7 +31,7 @@ export default fastifyPlugin(
 
         thumbnailTask.logger.debug('manually running thumbnails task');
 
-        await server.tasks.runJob(thumbnailTask.id, !!req.body.rerun);
+        await server.tasks.runJob(thumbnailTask.id, req.body.rerun);
 
         logger.info('thumbnails task manually run', {
           requester: req.user.username,
@@ -43,8 +45,6 @@ export default fastifyPlugin(
         });
       },
     );
-
-    done();
   },
   { name: PATH },
 );

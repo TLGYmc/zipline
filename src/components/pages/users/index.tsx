@@ -48,6 +48,9 @@ export default function DashboardUsers() {
       username: (value) => (value.length < 1 ? 'Username is required' : null),
       password: (value) => (value.length < 1 ? 'Password is required' : null),
     },
+    enhanceGetInputProps: ({ field }) => ({
+      name: field,
+    }),
   });
 
   const onSubmit = async (values: typeof form.values) => {
@@ -101,6 +104,7 @@ export default function DashboardUsers() {
             <TextInput
               label='Username'
               placeholder='Enter a username...'
+              autoComplete='username'
               {...form.getInputProps('username')}
             />
             <PasswordInput
@@ -150,11 +154,14 @@ export default function DashboardUsers() {
       <Group>
         <Title>Users</Title>
 
-        <Tooltip label='Create a new user'>
-          <ActionIcon variant='outline' onClick={() => setOpen(true)}>
-            <IconUserPlus size='1rem' />
-          </ActionIcon>
-        </Tooltip>
+        <Button
+          variant='outline'
+          size='compact-sm'
+          leftSection={<IconUserPlus size='1rem' />}
+          onClick={() => setOpen(true)}
+        >
+          Create
+        </Button>
 
         <GridTableSwitcher type='users' />
       </Group>
